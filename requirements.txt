@@ -1,5 +1,6 @@
 mistralai[realtime]>=2.3.0
 chromadb
+pymupdf>=1.24.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 python-dotenv>=1.0.0

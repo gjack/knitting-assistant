@@ -23,6 +23,27 @@ GARBLED_TABLE_PLACEHOLDER = (
     "*(Chart grid could not be transcribed as text — see the rendered chart "
     "image in the Charts section above.)*"
 )
+ABBREV_TABLE_HEADER_RE = re.compile(r"(?im)^\|\s*abbreviations\s*\|.*$")
+ABBREV_TABLE_PLACEHOLDER = "*(See Abbreviations & Legend above.)*"
+
+
+def _strip_abbreviations_table(markdown: str) -> str:
+    """OCR sometimes renders the abbreviations glossary as a wide table with
+    several symbol/meaning pairs per row — already shown cleanly elsewhere
+    from the parsed metadata, so drop the raw table here."""
+    lines = markdown.split("\n")
+    out = []
+    i = 0
+    while i < len(lines):
+        if ABBREV_TABLE_HEADER_RE.match(lines[i]):
+            i += 1
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                i += 1
+            out.append(ABBREV_TABLE_PLACEHOLDER)
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
 
 
 def _is_garbled_chart_table(lines: list[str]) -> bool:
@@ -243,6 +264,7 @@ async def process_pdf(pdf_bytes: bytes, filename: str) -> dict:
     broken_charts_by_page = {}
     for page_idx, page in enumerate(ocr_response.pages):
         cleaned, broken_names = _clean_and_detect_broken_charts(page_idx, page.markdown)
+        cleaned = _strip_abbreviations_table(cleaned)
         page_markdowns.append(cleaned)
         if broken_names:
             broken_charts_by_page[page_idx] = broken_names

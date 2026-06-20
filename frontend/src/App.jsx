@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const styles = {
   app: {
@@ -235,6 +236,27 @@ const styles = {
     color: "#444",
     flex: 1,
   },
+  mdTableWrap: {
+    overflowX: "auto",
+    margin: "8px 0",
+  },
+  mdTable: {
+    borderCollapse: "collapse",
+    fontSize: 13,
+  },
+  mdTh: {
+    background: "#fdf6ee",
+    padding: "6px 10px",
+    textAlign: "left",
+    fontWeight: 600,
+    border: "1px solid #e0d8d0",
+    whiteSpace: "nowrap",
+  },
+  mdTd: {
+    padding: "5px 10px",
+    border: "1px solid #e0d8d0",
+    whiteSpace: "nowrap",
+  },
   abbrevTable: {
     width: "100%",
     borderCollapse: "collapse",
@@ -418,6 +440,7 @@ function PatternMarkdown({ text, charts }) {
 
   return (
     <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
       components={{
         img: ({ src, alt }) => {
           const chart = chartById[src];
@@ -431,6 +454,13 @@ function PatternMarkdown({ text, charts }) {
             />
           );
         },
+        table: ({ children }) => (
+          <div style={styles.mdTableWrap}>
+            <table style={styles.mdTable}>{children}</table>
+          </div>
+        ),
+        th: ({ children }) => <th style={styles.mdTh}>{children}</th>,
+        td: ({ children }) => <td style={styles.mdTd}>{children}</td>,
       }}
     >
       {text}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 
 const styles = {
   app: {
@@ -202,7 +203,6 @@ const styles = {
   preText: {
     fontSize: 13,
     lineHeight: 1.7,
-    whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     background: "#fff",
     border: "1px solid #e0d8d0",
@@ -410,6 +410,34 @@ function ChartsSection({ charts }) {
   );
 }
 
+function PatternMarkdown({ text, charts }) {
+  const chartById = {};
+  (charts || []).forEach((c) => {
+    chartById[c.id] = c;
+  });
+
+  return (
+    <ReactMarkdown
+      components={{
+        img: ({ src, alt }) => {
+          const chart = chartById[src];
+          if (!chart?.base64) return null;
+          return (
+            <img
+              src={`data:image/jpeg;base64,${chart.base64}`}
+              alt={alt || chart.description || src}
+              title={chart.description}
+              style={styles.chartImg}
+            />
+          );
+        },
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
 function PatternViewer({ pattern, onDelete }) {
   const meta = pattern.metadata || {};
   const title = meta.title || pattern.filename || "Pattern";
@@ -428,7 +456,9 @@ function PatternViewer({ pattern, onDelete }) {
           <GlossaryPanel abbreviations={meta.abbreviations} />
           <ChartsSection charts={pattern.chart_images} />
           <div style={styles.sectionTitle}>Pattern Text</div>
-          <div style={styles.preText}>{pattern.raw_text}</div>
+          <div style={styles.preText}>
+            <PatternMarkdown text={pattern.raw_text} charts={pattern.chart_images} />
+          </div>
         </div>
         <div style={styles.rightPanel}>
           <div style={styles.chatPlaceholder}>

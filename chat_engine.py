@@ -1,8 +1,67 @@
 import json
+import re
 from pathlib import Path
 
 from config import client, CHAT_MODEL, CHAT_SYSTEM_PROMPT, HISTORY_WINDOW, LIBRARY_DIR
 
+# ---------------------------------------------------------------------------
+# Injection pre-filter
+# ---------------------------------------------------------------------------
+
+# Patterns that strongly suggest an injection attempt rather than a knitting
+# question. Each tuple is (label, compiled_regex). A message matching any of
+# these is rejected before reaching the LLM.
+_INJECTION_PATTERNS = [
+    # Instruction override
+    ("override", re.compile(
+        r"\b(ignore|disregard|forget|override|bypass|skip)\b.{0,40}"
+        r"\b(instructions?|prompt|system|rules?|guidelines?|previous)\b",
+        re.I | re.S,
+    )),
+    # Role-change / jailbreak
+    ("role_change", re.compile(
+        r"\b(you are now|act as|pretend( to be)?|roleplay|role.play|"
+        r"jailbreak|dan\b|do anything now|unrestricted mode|developer mode|"
+        r"maintenance mode|no restrictions?)\b",
+        re.I,
+    )),
+    # System prompt disclosure
+    ("disclosure", re.compile(
+        r"\b(repeat|reveal|show|print|output|display|tell me|what (is|are))\b"
+        r".{0,30}\b(system prompt|your instructions?|your rules?|your prompt)\b",
+        re.I | re.S,
+    )),
+    # Prompt delimiter injection (trying to inject a fake system/assistant turn)
+    ("delimiter", re.compile(
+        r"(\[INST\]|<\|system\|>|<\|user\|>|<\|assistant\|>|### (system|assistant|instruction)|"
+        r"<system>|</system>|<assistant>|</assistant>)",
+        re.I,
+    )),
+    # Script / code injection (HTML, SQL, shell)
+    ("script", re.compile(
+        r"(<script|<iframe|<img[^>]+onerror|javascript:|"
+        r"\bDROP\s+TABLE\b|\bSELECT\b.{0,20}\bFROM\b|"
+        r"\$\(|`[^`]+`|\beval\s*\()",
+        re.I,
+    )),
+]
+
+_INJECTION_REPLY = (
+    "I'm a knitting assistant and can only help with knitting-related questions. "
+    "What would you like to know about your pattern?"
+)
+
+
+def _is_injection(text: str) -> bool:
+    for _label, pattern in _INJECTION_PATTERNS:
+        if pattern.search(text):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _extract_text(content) -> str:
     if isinstance(content, str):
@@ -15,6 +74,10 @@ def _extract_text(content) -> str:
 def _doc_path(pattern_id: str) -> Path:
     return LIBRARY_DIR / pattern_id / "document.json"
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def get_history(pattern_id: str) -> list[dict]:
     path = _doc_path(pattern_id)
@@ -29,18 +92,25 @@ def chat(pattern_id: str, user_message: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Pattern {pattern_id} not found")
 
+    # Pre-filter: block obvious injection attempts without spending a model call
+    if _is_injection(user_message):
+        return _INJECTION_REPLY
+
     doc = json.loads(path.read_text())
     pattern_document = doc["pattern_document"]
     history = doc.get("chat_history") or []
 
-    # Window to last N turns (each turn = one user + one assistant message)
     windowed = history[-(HISTORY_WINDOW * 2):]
+
+    # Wrap the user message in XML tags so the model has a structural signal
+    # separating its instructions from untrusted user content.
+    framed_message = f"<user_question>{user_message}</user_question>"
 
     messages = [
         {"role": "system", "content": CHAT_SYSTEM_PROMPT},
         {"role": "user", "content": f"PATTERN:\n{pattern_document}"},
         *windowed,
-        {"role": "user", "content": user_message},
+        {"role": "user", "content": framed_message},
     ]
 
     # Retry once on ThinkChunk-only empty responses

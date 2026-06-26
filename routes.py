@@ -7,9 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 
+from pydantic import BaseModel
+
 from config import LIBRARY_DIR
 from pattern_processor import process_pdf
 from library_index import index_pattern, delete_pattern_index, search_library
+import chat_engine
 
 router = APIRouter(prefix="/api")
 
@@ -71,6 +74,35 @@ async def delete_pattern(pattern_id: str):
     shutil.rmtree(pattern_dir)
     await asyncio.to_thread(delete_pattern_index, pattern_id)
     return {"status": "deleted", "pattern_id": pattern_id}
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@router.get("/patterns/{pattern_id}/chat")
+async def get_chat_history(pattern_id: str):
+    return chat_engine.get_history(pattern_id)
+
+
+@router.post("/patterns/{pattern_id}/chat")
+async def send_chat_message(pattern_id: str, body: ChatRequest):
+    doc_path = LIBRARY_DIR / pattern_id / "document.json"
+    if not doc_path.exists():
+        raise HTTPException(status_code=404, detail="Pattern not found.")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    reply = await asyncio.to_thread(chat_engine.chat, pattern_id, body.message)
+    return {"reply": reply}
+
+
+@router.delete("/patterns/{pattern_id}/chat")
+async def clear_chat_history(pattern_id: str):
+    doc_path = LIBRARY_DIR / pattern_id / "document.json"
+    if not doc_path.exists():
+        raise HTTPException(status_code=404, detail="Pattern not found.")
+    await asyncio.to_thread(chat_engine.clear_history, pattern_id)
+    return {"status": "cleared"}
 
 
 @router.get("/search")

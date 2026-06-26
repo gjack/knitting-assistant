@@ -193,6 +193,112 @@ const styles = {
     textAlign: "center",
     gap: 8,
   },
+  chatPanel: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+  chatHeader: {
+    padding: "10px 16px",
+    borderBottom: "1px solid #e0d8d0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  chatHeaderTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#5a3e2b",
+    margin: 0,
+  },
+  clearBtn: {
+    background: "none",
+    border: "none",
+    color: "#aaa",
+    fontSize: 12,
+    cursor: "pointer",
+    padding: "2px 4px",
+  },
+  chatMessages: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "12px 14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  chatEmpty: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#bbb",
+    fontSize: 13,
+    gap: 6,
+    textAlign: "center",
+  },
+  bubble: {
+    maxWidth: "88%",
+    padding: "8px 12px",
+    borderRadius: 10,
+    fontSize: 13,
+    lineHeight: 1.55,
+    wordBreak: "break-word",
+  },
+  bubbleUser: {
+    alignSelf: "flex-end",
+    background: "#5a3e2b",
+    color: "#fff",
+    borderBottomRightRadius: 2,
+  },
+  bubbleAssistant: {
+    alignSelf: "flex-start",
+    background: "#fff",
+    border: "1px solid #e0d8d0",
+    color: "#2c2c2c",
+    borderBottomLeftRadius: 2,
+  },
+  bubbleThinking: {
+    alignSelf: "flex-start",
+    background: "#f5f0eb",
+    border: "1px solid #e0d8d0",
+    color: "#aaa",
+    fontStyle: "italic",
+    fontSize: 13,
+    padding: "8px 12px",
+    borderRadius: 10,
+  },
+  chatInputRow: {
+    display: "flex",
+    gap: 6,
+    padding: "10px 12px",
+    borderTop: "1px solid #e0d8d0",
+    background: "#fff",
+  },
+  chatInput: {
+    flex: 1,
+    padding: "8px 10px",
+    border: "1px solid #d0c8c0",
+    borderRadius: 6,
+    fontSize: 13,
+    outline: "none",
+    resize: "none",
+    fontFamily: "inherit",
+    lineHeight: 1.4,
+  },
+  sendBtn: {
+    padding: "8px 14px",
+    background: "#5a3e2b",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    alignSelf: "flex-end",
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: 700,
@@ -468,6 +574,112 @@ function PatternMarkdown({ text, charts }) {
   );
 }
 
+function ChatPanel({ patternId, initialHistory }) {
+  const [messages, setMessages] = useState(initialHistory || []);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || thinking) return;
+    setInput("");
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setThinking(true);
+    try {
+      const resp = await fetch(`/api/patterns/${patternId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      if (!resp.ok) throw new Error("Chat request failed");
+      const { reply } = await resp.json();
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
+    } finally {
+      setThinking(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  const handleClear = async () => {
+    if (!window.confirm("Clear chat history?")) return;
+    await fetch(`/api/patterns/${patternId}/chat`, { method: "DELETE" });
+    setMessages([]);
+  };
+
+  return (
+    <div style={styles.chatPanel}>
+      <div style={styles.chatHeader}>
+        <span style={styles.chatHeaderTitle}>Ask about this pattern</span>
+        {messages.length > 0 && (
+          <button style={styles.clearBtn} onClick={handleClear}>Clear</button>
+        )}
+      </div>
+      <div style={styles.chatMessages}>
+        {messages.length === 0 && !thinking && (
+          <div style={styles.chatEmpty}>
+            <span style={{ fontSize: 28 }}>💬</span>
+            <span>Ask anything about this pattern</span>
+            <span style={{ fontSize: 11 }}>
+              Symbol meanings, row instructions, stitch counts, sizing…
+            </span>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              ...styles.bubble,
+              ...(m.role === "user" ? styles.bubbleUser : styles.bubbleAssistant),
+            }}
+          >
+            {m.role === "assistant" ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+            ) : (
+              m.content
+            )}
+          </div>
+        ))}
+        {thinking && <div style={styles.bubbleThinking}>Thinking…</div>}
+        <div ref={bottomRef} />
+      </div>
+      <div style={styles.chatInputRow}>
+        <textarea
+          style={styles.chatInput}
+          rows={2}
+          placeholder="Ask a question… (Enter to send, Shift+Enter for new line)"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={thinking}
+        />
+        <button
+          style={{ ...styles.sendBtn, opacity: thinking ? 0.6 : 1 }}
+          onClick={send}
+          disabled={thinking}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PatternViewer({ pattern, onDelete }) {
   const meta = pattern.metadata || {};
   const title = meta.title || pattern.filename || "Pattern";
@@ -491,13 +703,10 @@ function PatternViewer({ pattern, onDelete }) {
           </div>
         </div>
         <div style={styles.rightPanel}>
-          <div style={styles.chatPlaceholder}>
-            <span style={{ fontSize: 36 }}>💬</span>
-            <span>Chat coming soon</span>
-            <span style={{ fontSize: 12, color: "#bbb" }}>
-              Ask questions about this pattern
-            </span>
-          </div>
+          <ChatPanel
+            patternId={pattern.pattern_id}
+            initialHistory={pattern.chat_history || []}
+          />
         </div>
       </div>
     </div>

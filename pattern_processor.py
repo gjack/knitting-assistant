@@ -149,6 +149,14 @@ def _extract_metadata_sync(raw_text: str) -> dict:
     }
 
 
+_CHART_READING_CONVENTIONS = """
+Knitting chart reading conventions:
+- Row numbers on the RIGHT = RS (right side) rows, read RIGHT TO LEFT.
+- Row numbers on the LEFT = WS (wrong side) rows, read LEFT TO RIGHT.
+- If ONLY ODD numbers appear (all on the right), only RS rows are charted; WS rows are worked plain (knit all stitches) and are not shown in the chart.
+"""
+
+
 def _interpret_chart_sync(chart_image, title: str, legend_text: str) -> dict:
     prompt = (
         f"This image is from the knitting pattern '{title}'. "
@@ -157,13 +165,15 @@ def _interpret_chart_sync(chart_image, title: str, legend_text: str) -> dict:
         f"(letters like A, B, C pointing to dimensions). If so, list every labeled measurement "
         f"exactly as shown (e.g. 'A = 10 (11.5, 13)\"') and describe the garment piece shape.\n"
         f"- STITCH CHART: a grid of symbols representing individual stitches row by row. "
-        f"If so, use the pattern legend ({legend_text}) to describe the stitch pattern, "
-        f"any repeats, and a row-by-row reading where legible. Describe rows in words "
-        f"(e.g. 'K1, YO, K2tog, repeat to end') — do not reproduce the grid itself as "
-        f"ASCII art, a table, or a row of symbols; that is not legible to the reader.\n"
+        f"If so, apply these reading conventions:\n{_CHART_READING_CONVENTIONS}\n"
+        f"Use the pattern legend ({legend_text}) to read each numbered row and give its COMPLETE "
+        f"stitch-by-stitch sequence (e.g. 'Row 1 (RS): k3, yo, ssk, k1, k2tog, yo, k3'). "
+        f"Note repeats with standard notation (e.g. '*yo, k2tog; rep from * to last st, k1'). "
+        f"Cover every numbered row visible. Do not reproduce the chart as ASCII art or a symbol grid. "
+        f"If a row is too small to read confidently, say so — do not guess stitch counts.\n"
         f"- OTHER: a photo, decorative image, or something else — describe what you see.\n\n"
         f"Start your response with the image type (SCHEMATIC / STITCH CHART / OTHER), "
-        f"then give the description. If you cannot confidently read the content, say so rather than guessing."
+        f"then give the description."
     )
     try:
         resp = client.chat.complete(
@@ -180,7 +190,7 @@ def _interpret_chart_sync(chart_image, title: str, legend_text: str) -> dict:
                     ],
                 }
             ],
-            max_tokens=600,
+            max_tokens=1200,
         )
         description = _extract_text(resp.choices[0].message.content)
     except Exception as e:
@@ -219,11 +229,13 @@ def _interpret_fallback_page_sync(
             if plural
             else ""
         )
-        + f"For {'each chart' if plural else 'it'}, describe it as a STITCH CHART: "
-        f"use the pattern legend ({legend_text}) to describe the stitch pattern, any repeats, "
-        f"and a row-by-row reading where legible. Describe rows in words "
-        f"(e.g. 'K1, YO, K2tog, repeat to end') — do not reproduce the grid itself as "
-        f"ASCII art, a table, or a row of symbols; that is not legible to the reader. "
+        + f"For {'each chart' if plural else 'it'}, treat it as a STITCH CHART and apply "
+        f"these reading conventions:\n{_CHART_READING_CONVENTIONS}\n"
+        f"Use the pattern legend ({legend_text}) to read each numbered row and give its COMPLETE "
+        f"stitch-by-stitch sequence (e.g. 'Row 1 (RS): k3, yo, ssk, k1, k2tog, yo, k3'). "
+        f"Note repeats with standard notation. Cover every numbered row visible. "
+        f"Do not reproduce the chart as ASCII art or a symbol grid. "
+        f"If a row is too small to read confidently, say so. "
         f"Ignore unrelated page content (titles, page numbers, other sections)."
     )
     try:
@@ -238,7 +250,7 @@ def _interpret_fallback_page_sync(
                     ],
                 }
             ],
-            max_tokens=600 * max(len(chart_names), 1),
+            max_tokens=1200 * max(len(chart_names), 1),
         )
         description = _extract_text(resp.choices[0].message.content)
     except Exception as e:
@@ -250,6 +262,22 @@ def _interpret_fallback_page_sync(
         "description": description,
         "bounding_box": None,
     }
+
+
+def _build_image_name_map(raw_text: str) -> dict[str, str]:
+    """Scan OCR text for image references and return {image_id: chart_name}.
+    Uses the last non-empty line before each image ref as the name if it
+    looks like a chart heading."""
+    mapping = {}
+    for m in re.finditer(r'!\[[^\]]*\]\(([^)]+)\)', raw_text):
+        img_id = m.group(1)
+        before = raw_text[max(0, m.start() - 300):m.start()]
+        lines = [l.strip().lstrip("#").strip() for l in before.split("\n") if l.strip()]
+        if lines:
+            candidate = lines[-1]
+            if re.search(r'(?i)chart', candidate) and len(candidate) < 60:
+                mapping[img_id] = candidate
+    return mapping
 
 
 async def process_pdf(pdf_bytes: bytes, filename: str) -> dict:
@@ -306,12 +334,14 @@ async def process_pdf(pdf_bytes: bytes, filename: str) -> dict:
         tasks = [asyncio.to_thread(_interpret_item_sync, item) for item in items]
         chart_results = await asyncio.gather(*tasks)
 
+    image_name_map = _build_image_name_map(raw_text)
+
     chart_descriptions_text = ""
     if chart_results:
-        parts = [
-            f"### Chart {i + 1}\n{c['description']}"
-            for i, c in enumerate(chart_results)
-        ]
+        parts = []
+        for i, c in enumerate(chart_results):
+            label = image_name_map.get(c["id"]) or f"Chart {i + 1}"
+            parts.append(f"### {label}\n{c['description']}")
         chart_descriptions_text = "\n\n".join(parts)
 
     # Rebuild a clean abbreviations section from structured metadata and prepend

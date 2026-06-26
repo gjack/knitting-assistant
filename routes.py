@@ -1,12 +1,15 @@
+import asyncio
 import json
 import shutil
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 
 from config import LIBRARY_DIR
 from pattern_processor import process_pdf
+from library_index import index_pattern, delete_pattern_index, search_library
 
 router = APIRouter(prefix="/api")
 
@@ -17,6 +20,13 @@ async def upload_pattern(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     pdf_bytes = await file.read()
     doc = await process_pdf(pdf_bytes, file.filename)
+
+    title = doc.get("metadata", {}).get("title") or doc.get("filename") or "Unknown"
+    abbreviations = doc.get("metadata", {}).get("abbreviations") or []
+    await asyncio.to_thread(
+        index_pattern, doc["pattern_id"], title, doc["pattern_document"], abbreviations
+    )
+
     return JSONResponse(content=doc)
 
 
@@ -59,4 +69,17 @@ async def delete_pattern(pattern_id: str):
     if not pattern_dir.exists():
         raise HTTPException(status_code=404, detail="Pattern not found.")
     shutil.rmtree(pattern_dir)
+    await asyncio.to_thread(delete_pattern_index, pattern_id)
     return {"status": "deleted", "pattern_id": pattern_id}
+
+
+@router.get("/search")
+async def search_patterns(
+    q: str = Query(..., description="Natural-language search query"),
+    n: int = Query(5, ge=1, le=20),
+    pattern_id: Optional[str] = Query(None),
+):
+    """Search the library with a natural-language query.
+    Optionally restrict to a single pattern_id."""
+    results = await asyncio.to_thread(search_library, q, n, pattern_id)
+    return results

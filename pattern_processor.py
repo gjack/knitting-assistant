@@ -314,7 +314,18 @@ async def process_pdf(pdf_bytes: bytes, filename: str) -> dict:
         ]
         chart_descriptions_text = "\n\n".join(parts)
 
-    pattern_document = raw_text
+    # Rebuild a clean abbreviations section from structured metadata and prepend
+    # it so the chunk is always present and searchable, regardless of what the
+    # OCR produced (the raw table was stripped earlier to avoid garbled output).
+    abbrev_section = ""
+    if abbreviations:
+        rows = "\n".join(
+            f"- **{a.get('symbol', '')}**: {a.get('meaning', '')}"
+            for a in abbreviations
+        )
+        abbrev_section = f"## Abbreviations & Legend\n{rows}\n\n"
+
+    pattern_document = abbrev_section + raw_text
     if chart_descriptions_text:
         pattern_document += "\n\n## Chart Descriptions\n" + chart_descriptions_text
 

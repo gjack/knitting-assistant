@@ -5,10 +5,11 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 ## What it does
 
 - **Upload a PDF pattern** — Mistral OCR extracts the text and any embedded images (stitch charts, schematics)
-- **Interpret charts automatically** — a vision model reads each chart/schematic using the pattern's own legend
-- **Browse your library** — every processed pattern is saved locally; reopen any pattern without re-uploading
-- **Ask questions** *(coming soon)* — chat with the pattern by typing or by voice (push-to-talk)
-- **Search across patterns** *(coming soon)* — "which of my patterns use a provisional cast-on?"
+- **Interpret charts automatically** — a vision model reads each chart using the pattern's own legend and gives a row-by-row stitch sequence for every numbered row
+- **Ask questions by typing** — chat with the active pattern: symbol meanings, specific row sequences, stitch counts, sizing, materials, yarn substitution. The full pattern document is the context on every message
+- **Browse your library** — every processed pattern is saved locally and indexed in ChromaDB; reopen any pattern without re-uploading
+- **Search across patterns** — natural-language search over all indexed patterns via `GET /api/search`
+- **Voice interaction** *(coming soon)* — push-to-talk STT + TTS readback
 
 ## Stack
 
@@ -20,17 +21,18 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 | Vision / Chat | `mistral-small-latest` |
 | Embeddings | `mistral-embed` |
 | Vector store | ChromaDB (local, persistent) |
-| Voice STT | Voxtral Realtime |
-| Voice TTS | Voxtral TTS |
+| Voice STT | Voxtral Realtime *(phase 4)* |
+| Voice TTS | Voxtral TTS *(phase 4)* |
 
 ## Project status
 
 | Phase | Feature | Status |
 |---|---|---|
 | 1 | PDF upload → OCR → metadata extraction → chart interpretation → viewer | ✅ Done |
-| 2 | Text chat over the active pattern (full-context Q&A) | 🔜 Next |
-| 3 | ChromaDB library index + cross-pattern search | 🔜 Planned |
-| 4 | Voice interaction (push-to-talk STT + TTS) | 🔜 Planned |
+| 2 | Text chat over the active pattern (full-context Q&A, history, guardrails) | ✅ Done |
+| 3a | ChromaDB library indexing + `/api/search` endpoint | ✅ Done |
+| 3b | "Ask my library" — RAG over all patterns when none is active | 🔜 Planned |
+| 4 | Voice interaction (push-to-talk STT + TTS readback) | 🔜 Planned |
 
 ## Setup
 
@@ -41,13 +43,15 @@ See [usageInstructions.md](usageInstructions.md) for full setup and run instruct
 ```
 knitting-assistant/
 ├── server.py              # FastAPI app + WebSocket stub
-├── routes.py              # REST endpoints (upload, library CRUD)
+├── routes.py              # REST endpoints (upload, library CRUD, chat, search)
 ├── pattern_processor.py   # OCR + metadata + chart interpretation pipeline
-├── config.py              # Mistral client, model IDs, constants
+├── chat_engine.py         # LLM chat over active pattern, history, injection filter
+├── library_index.py       # Chroma chunking, embedding, and search
+├── config.py              # Mistral client, model IDs, system prompts, constants
 ├── frontend/              # React + Vite app
-│   └── src/App.jsx        # Main UI (upload, viewer, library sidebar)
+│   └── src/App.jsx        # Upload, pattern viewer, library sidebar, chat panel
 ├── library/               # On-disk pattern storage (created at runtime)
-├── chroma_db/             # ChromaDB storage (created at runtime, phase 3)
+├── chroma_db/             # ChromaDB persistent storage (created at runtime)
 ├── requirements.txt
 └── .env.example
 ```

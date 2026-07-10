@@ -68,6 +68,29 @@ const styles = {
     fontSize: 11,
     color: "#888",
   },
+  libraryErrorBox: {
+    margin: "8px 16px",
+    padding: "10px 12px",
+    background: "#fdf0ee",
+    border: "1px solid #e8b8ae",
+    borderRadius: 6,
+    fontSize: 12,
+    color: "#a83c2e",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  retryBtn: {
+    alignSelf: "flex-start",
+    padding: "4px 10px",
+    background: "#fff",
+    color: "#a83c2e",
+    border: "1px solid #a83c2e",
+    borderRadius: 5,
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+  },
   main: {
     flex: 1,
     display: "flex",
@@ -863,15 +886,28 @@ export default function App() {
   const [activePattern, setActivePattern] = useState(null);
   const [library, setLibrary] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [libraryError, setLibraryError] = useState(null);
 
-  useEffect(() => {
+  const loadLibrary = () => {
+    setLoading(true);
+    setLibraryError(null);
     fetch("/api/patterns")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Request failed (${r.status})`);
+        return r.json();
+      })
       .then((data) => {
         setLibrary(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setLibraryError("Can't reach the backend. Is the server running?");
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    loadLibrary();
   }, []);
 
   const handleUploaded = (doc) => {
@@ -938,7 +974,13 @@ export default function App() {
           {loading && (
             <div style={{ padding: "16px", fontSize: 13, color: "#aaa" }}>Loading…</div>
           )}
-          {!loading && library.length === 0 && (
+          {!loading && libraryError && (
+            <div style={styles.libraryErrorBox}>
+              <div>{libraryError}</div>
+              <button style={styles.retryBtn} onClick={loadLibrary}>Retry</button>
+            </div>
+          )}
+          {!loading && !libraryError && library.length === 0 && (
             <div style={{ padding: "16px", fontSize: 13, color: "#aaa" }}>
               No patterns yet
             </div>

@@ -1007,7 +1007,7 @@ export default function App() {
       </div>
       <div style={styles.main}>
         {activePattern ? (
-          <PatternViewer pattern={activePattern} onDelete={handleDelete} />
+          <PatternViewer key={activePattern.pattern_id} pattern={activePattern} onDelete={handleDelete} />
         ) : (
           <div style={styles.uploadZone}>
             <div style={styles.uploadZoneLeft}>

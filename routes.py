@@ -80,6 +80,11 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class LibraryChatRequest(BaseModel):
+    message: str
+    history: Optional[list[dict]] = None
+
+
 @router.get("/patterns/{pattern_id}/chat")
 async def get_chat_history(pattern_id: str):
     return chat_engine.get_history(pattern_id)
@@ -115,3 +120,12 @@ async def search_patterns(
     Optionally restrict to a single pattern_id."""
     results = await asyncio.to_thread(search_library, q, n, pattern_id)
     return results
+
+
+@router.post("/library/chat")
+async def ask_library(body: LibraryChatRequest):
+    """RAG Q&A across the whole library, for when no pattern is active."""
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    result = await asyncio.to_thread(chat_engine.ask_library, body.message, body.history)
+    return result

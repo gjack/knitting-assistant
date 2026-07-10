@@ -1,8 +1,18 @@
 import json
 import re
 from pathlib import Path
+from typing import Optional
 
-from config import client, CHAT_MODEL, CHAT_SYSTEM_PROMPT, HISTORY_WINDOW, LIBRARY_DIR
+from config import (
+    client,
+    CHAT_MODEL,
+    CHAT_SYSTEM_PROMPT,
+    LIBRARY_CHAT_SYSTEM_PROMPT,
+    HISTORY_WINDOW,
+    LIBRARY_DIR,
+    LIBRARY_RAG_K,
+)
+from library_index import search_library
 
 # ---------------------------------------------------------------------------
 # Injection pre-filter
@@ -49,6 +59,11 @@ _INJECTION_PATTERNS = [
 _INJECTION_REPLY = (
     "I'm a knitting assistant and can only help with knitting-related questions. "
     "What would you like to know about your pattern?"
+)
+
+_LIBRARY_INJECTION_REPLY = (
+    "I'm a knitting assistant and can only help with knitting-related questions. "
+    "What would you like to know about your patterns?"
 )
 
 
@@ -130,6 +145,56 @@ def chat(pattern_id: str, user_message: str) -> str:
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=2))
 
     return reply
+
+
+def ask_library(user_message: str, history: Optional[list[dict]] = None) -> dict:
+    """RAG Q&A across the whole library, used when no pattern is active.
+
+    Unlike `chat()`, there is no single pattern_document — instead the top-k
+    matching chunks across all patterns are retrieved and cited by title.
+    History is not persisted server-side; the caller passes back whatever
+    conversation it wants included as context.
+    """
+    if _is_injection(user_message):
+        return {"reply": _LIBRARY_INJECTION_REPLY, "sources": []}
+
+    hits = search_library(user_message, n_results=LIBRARY_RAG_K)
+
+    if not hits:
+        context_block = "(No patterns are indexed in the library yet.)"
+    else:
+        context_block = "\n\n".join(
+            f"[Source: {h['pattern_title']}]\n{h['text']}" for h in hits
+        )
+
+    windowed = (history or [])[-(HISTORY_WINDOW * 2):]
+    framed_message = f"<user_question>{user_message}</user_question>"
+
+    messages = [
+        {"role": "system", "content": LIBRARY_CHAT_SYSTEM_PROMPT},
+        {"role": "user", "content": f"RETRIEVED EXCERPTS:\n{context_block}"},
+        *windowed,
+        {"role": "user", "content": framed_message},
+    ]
+
+    reply = ""
+    for _ in range(2):
+        resp = client.chat.complete(model=CHAT_MODEL, messages=messages)
+        reply = _extract_text(resp.choices[0].message.content)
+        if reply.strip():
+            break
+
+    sources = []
+    if reply.strip() != _LIBRARY_INJECTION_REPLY:
+        seen = set()
+        for h in hits:
+            pid = h["pattern_id"]
+            if pid in seen:
+                continue
+            seen.add(pid)
+            sources.append({"pattern_id": pid, "pattern_title": h["pattern_title"]})
+
+    return {"reply": reply, "sources": sources}
 
 
 def clear_history(pattern_id: str) -> None:

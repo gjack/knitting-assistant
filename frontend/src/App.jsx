@@ -77,10 +77,40 @@ const styles = {
   uploadZone: {
     flex: 1,
     display: "flex",
+    padding: 40,
+    gap: 40,
+    overflow: "hidden",
+  },
+  uploadZoneLeft: {
+    flex: 1,
+    display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: 40,
+  },
+  uploadZoneRight: {
+    width: 380,
+    display: "flex",
+    flexDirection: "column",
+    background: "#fff",
+    border: "1px solid #e0d8d0",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  librarySourceRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  librarySourcePill: {
+    fontSize: 11,
+    padding: "3px 8px",
+    borderRadius: 999,
+    background: "#fdf6ee",
+    border: "1px solid #e0d8d0",
+    color: "#5a3e2b",
+    cursor: "pointer",
   },
   dropArea: {
     width: "100%",
@@ -434,7 +464,7 @@ function PatternUpload({ onUploaded }) {
   };
 
   return (
-    <div style={styles.uploadZone}>
+    <div style={styles.uploadZoneLeft}>
       <div
         style={{ ...styles.dropArea, ...(dragging ? styles.dropAreaActive : {}) }}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -680,6 +710,122 @@ function ChatPanel({ patternId, initialHistory }) {
   );
 }
 
+function LibraryChatPanel({ onSelectPattern }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || thinking) return;
+    setInput("");
+    const nextHistory = [...messages, { role: "user", content: text }];
+    setMessages(nextHistory);
+    setThinking(true);
+    try {
+      const resp = await fetch("/api/library/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history: messages }),
+      });
+      if (!resp.ok) throw new Error("Chat request failed");
+      const { reply, sources } = await resp.json();
+      setMessages((prev) => [...prev, { role: "assistant", content: reply, sources }]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
+    } finally {
+      setThinking(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <div style={styles.chatPanel}>
+      <div style={styles.chatHeader}>
+        <span style={styles.chatHeaderTitle}>Ask my library</span>
+        {messages.length > 0 && (
+          <button style={styles.clearBtn} onClick={() => setMessages([])}>Clear</button>
+        )}
+      </div>
+      <div style={styles.chatMessages}>
+        {messages.length === 0 && !thinking && (
+          <div style={styles.chatEmpty}>
+            <span style={{ fontSize: 28 }}>📚</span>
+            <span>Ask across all your saved patterns</span>
+            <span style={{ fontSize: 11 }}>
+              "Which patterns use a provisional cast-on?"
+            </span>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              ...styles.bubble,
+              ...(m.role === "user" ? styles.bubbleUser : styles.bubbleAssistant),
+            }}
+          >
+            {m.role === "assistant" ? (
+              <>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                {m.sources && m.sources.length > 0 && (
+                  <div style={styles.librarySourceRow}>
+                    {m.sources.map((s) => (
+                      <span
+                        key={s.pattern_id}
+                        style={styles.librarySourcePill}
+                        onClick={() => onSelectPattern(s.pattern_id)}
+                      >
+                        {s.pattern_title}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              m.content
+            )}
+          </div>
+        ))}
+        {thinking && <div style={styles.bubbleThinking}>Searching your library…</div>}
+        <div ref={bottomRef} />
+      </div>
+      <div style={styles.chatInputRow}>
+        <textarea
+          style={styles.chatInput}
+          rows={2}
+          placeholder="Ask across your library… (Enter to send)"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={thinking}
+        />
+        <button
+          style={{ ...styles.sendBtn, opacity: thinking ? 0.6 : 1 }}
+          onClick={send}
+          disabled={thinking}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PatternViewer({ pattern, onDelete }) {
   const meta = pattern.metadata || {};
   const title = meta.title || pattern.filename || "Pattern";
@@ -811,7 +957,14 @@ export default function App() {
         {activePattern ? (
           <PatternViewer pattern={activePattern} onDelete={handleDelete} />
         ) : (
-          <PatternUpload onUploaded={handleUploaded} />
+          <div style={styles.uploadZone}>
+            <div style={styles.uploadZoneLeft}>
+              <PatternUpload onUploaded={handleUploaded} />
+            </div>
+            <div style={styles.uploadZoneRight}>
+              <LibraryChatPanel onSelectPattern={handleSelectPattern} />
+            </div>
+          </div>
         )}
       </div>
     </div>

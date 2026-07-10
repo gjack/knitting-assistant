@@ -9,6 +9,7 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 - **Ask questions by typing** — chat with the active pattern: symbol meanings, specific row sequences, stitch counts, sizing, materials, yarn substitution. The full pattern document is the context on every message
 - **Browse your library** — every processed pattern is saved locally and indexed in ChromaDB; reopen any pattern without re-uploading
 - **Search across patterns** — natural-language search over all indexed patterns via `GET /api/search`
+- **Ask my library** — when no pattern is active, ask questions across your whole library ("which patterns use short-row shaping?") and get an answer with citations to the source pattern(s), which you can click to open
 - **Voice interaction** *(coming soon)* — push-to-talk STT + TTS readback
 
 ## Stack
@@ -31,7 +32,7 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 | 1 | PDF upload → OCR → metadata extraction → chart interpretation → viewer | ✅ Done |
 | 2 | Text chat over the active pattern (full-context Q&A, history, guardrails) | ✅ Done |
 | 3a | ChromaDB library indexing + `/api/search` endpoint | ✅ Done |
-| 3b | "Ask my library" — RAG over all patterns when none is active | 🔜 Planned |
+| 3b | "Ask my library" — RAG over all patterns when none is active | ✅ Done |
 | 4 | Voice interaction (push-to-talk STT + TTS readback) | 🔜 Planned |
 
 ## Setup
@@ -45,7 +46,7 @@ knitting-assistant/
 ├── server.py              # FastAPI app + WebSocket stub
 ├── routes.py              # REST endpoints (upload, library CRUD, chat, search)
 ├── pattern_processor.py   # OCR + metadata + chart interpretation pipeline
-├── chat_engine.py         # LLM chat over active pattern, history, injection filter
+├── chat_engine.py         # LLM chat over active pattern + library-wide RAG, history, injection filter
 ├── library_index.py       # Chroma chunking, embedding, and search
 ├── config.py              # Mistral client, model IDs, system prompts, constants
 ├── frontend/              # React + Vite app

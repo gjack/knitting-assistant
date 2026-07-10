@@ -106,6 +106,16 @@ GET /api/search?q=provisional+cast-on&n=5
 
 Returns the top matching chunks with `pattern_id`, `pattern_title`, `section_type`, and the matching text.
 
+### Ask my library
+
+When no pattern is active (the upload screen), a second panel — **Ask my library** — appears next to the drop zone. Ask a question that spans your whole collection, e.g. "which of my patterns use a provisional cast-on?" or "find a pattern with short-row shaping."
+
+- Retrieves the top matching chunks across every indexed pattern (via the same Chroma index as library search) and answers using only those excerpts
+- Every claim is cited inline to the pattern it came from; cited pattern titles also appear as clickable pills below the reply — click one to open that pattern
+- If nothing relevant is indexed, or the library is empty, it says so rather than falling back on generic knitting knowledge
+- This chat is separate from per-pattern chat: it isn't persisted to disk, so it resets on page reload
+- Same off-topic and prompt-injection guardrails as the per-pattern chat apply here too
+
 ### Library
 
 - Every processed pattern is saved to `library/` on disk

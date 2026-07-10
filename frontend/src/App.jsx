@@ -924,6 +924,16 @@ export default function App() {
             + Upload Pattern
           </button>
         </div>
+        <div
+          style={{
+            ...styles.patternItem,
+            ...(!activePattern ? styles.patternItemActive : {}),
+            borderBottom: "1px solid #e0d8d0",
+          }}
+          onClick={() => setActivePattern(null)}
+        >
+          <div style={styles.patternItemTitle}>📚 Ask my library</div>
+        </div>
         <div style={styles.patternList}>
           {loading && (
             <div style={{ padding: "16px", fontSize: 13, color: "#aaa" }}>Loading…</div>

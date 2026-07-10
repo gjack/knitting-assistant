@@ -194,12 +194,17 @@ def ask_library(user_message: str, history: Optional[list[dict]] = None) -> dict
         if reply.strip():
             break
 
+    # Only surface a pattern as a source if the reply actually cites it by
+    # title, not every pattern whose chunks happened to be in context — the
+    # materials-chunk merge above means `hits` includes every pattern in the
+    # library on nearly every request, which would otherwise turn "sources"
+    # into "the whole library" regardless of what the answer was about.
     sources = []
     if reply.strip() != _LIBRARY_INJECTION_REPLY:
         seen = set()
         for h in hits:
             pid = h["pattern_id"]
-            if pid in seen:
+            if pid in seen or h["pattern_title"] not in reply:
                 continue
             seen.add(pid)
             sources.append({"pattern_id": pid, "pattern_title": h["pattern_title"]})

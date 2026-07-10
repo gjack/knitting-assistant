@@ -733,8 +733,7 @@ function ChatPanel({ patternId, initialHistory }) {
   );
 }
 
-function LibraryChatPanel({ onSelectPattern }) {
-  const [messages, setMessages] = useState([]);
+function LibraryChatPanel({ onSelectPattern, messages, setMessages }) {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const bottomRef = useRef(null);
@@ -887,6 +886,7 @@ export default function App() {
   const [library, setLibrary] = useState([]);
   const [loading, setLoading] = useState(true);
   const [libraryError, setLibraryError] = useState(null);
+  const [libraryChatMessages, setLibraryChatMessages] = useState([]);
 
   const loadLibrary = () => {
     setLoading(true);
@@ -1014,7 +1014,11 @@ export default function App() {
               <PatternUpload onUploaded={handleUploaded} />
             </div>
             <div style={styles.uploadZoneRight}>
-              <LibraryChatPanel onSelectPattern={handleSelectPattern} />
+              <LibraryChatPanel
+                onSelectPattern={handleSelectPattern}
+                messages={libraryChatMessages}
+                setMessages={setLibraryChatMessages}
+              />
             </div>
           </div>
         )}

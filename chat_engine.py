@@ -12,7 +12,7 @@ from config import (
     LIBRARY_DIR,
     LIBRARY_RAG_K,
 )
-from library_index import search_library
+from library_index import search_library, get_materials_chunks
 
 # ---------------------------------------------------------------------------
 # Injection pre-filter
@@ -159,6 +159,16 @@ def ask_library(user_message: str, history: Optional[list[dict]] = None) -> dict
         return {"reply": _LIBRARY_INJECTION_REPLY, "sources": []}
 
     hits = search_library(user_message, n_results=LIBRARY_RAG_K)
+
+    # Always fold in every pattern's materials chunk (sizes/gauge/needles/
+    # yarn) alongside the semantic hits, so questions comparing yardage,
+    # gauge, or needle size across the whole library aren't at the mercy of
+    # whether a given pattern's materials happened to rank in the top-k.
+    seen_pids = {h["pattern_id"] for h in hits}
+    for m in get_materials_chunks():
+        if m["pattern_id"] not in seen_pids:
+            hits.append(m)
+            seen_pids.add(m["pattern_id"])
 
     if not hits:
         context_block = "(No patterns are indexed in the library yet.)"

@@ -107,11 +107,47 @@ def _abbreviation_chunks(pattern_title: str, abbreviations: list[dict]) -> list[
     return chunks
 
 
+def _materials_chunk(pattern_title: str, metadata: dict) -> Optional[dict]:
+    """A single dense chunk of sizes/gauge/needles/yarn from the extracted
+    metadata, not the raw OCR text. Needed because materials info in the raw
+    text lands under whatever header the PDF happens to use (or none), and
+    otherwise only competes for retrieval against noisier chunks — e.g. a
+    per-abbreviation chunk like "YO — yarn over" also contains the word
+    "yarn" and embeds close enough to crowd out the real yardage/gauge chunk
+    in a query like "which pattern can I knit with 400yds of fingering?"."""
+    def _fmt(v):
+        if isinstance(v, list):
+            return ", ".join(str(x) for x in v if x)
+        return str(v) if v else ""
+
+    parts = []
+    sizes = _fmt(metadata.get("sizes"))
+    gauge = _fmt(metadata.get("gauge"))
+    needles = _fmt(metadata.get("needles"))
+    yarn = _fmt(metadata.get("yarn"))
+    if sizes:
+        parts.append(f"Sizes: {sizes}.")
+    if gauge:
+        parts.append(f"Gauge: {gauge}.")
+    if needles:
+        parts.append(f"Needles: {needles}.")
+    if yarn:
+        parts.append(f"Yarn: {yarn}.")
+
+    if not parts:
+        return None
+
+    return {
+        "text": f"{pattern_title}\n\nMaterials — {' '.join(parts)}",
+        "section_type": "materials",
+    }
+
+
 def index_pattern(
     pattern_id: str,
     pattern_title: str,
     pattern_document: str,
-    abbreviations: Optional[list[dict]] = None,
+    metadata: Optional[dict] = None,
 ) -> int:
     """Chunk, embed, and add a pattern to the Chroma collection.
     Returns the number of chunks indexed."""
@@ -123,8 +159,16 @@ def index_pattern(
         pass
 
     chunks = _chunk_pattern_document(pattern_document, pattern_title)
+    metadata = metadata or {}
 
-    # Add per-abbreviation chunks on top of the section chunks
+    # Add a dedicated materials chunk and per-abbreviation chunks on top of
+    # the section chunks, built from the structured metadata rather than
+    # relying on however the raw text happened to be chunked.
+    materials = _materials_chunk(pattern_title, metadata)
+    if materials:
+        chunks.append(materials)
+
+    abbreviations = metadata.get("abbreviations")
     if abbreviations:
         chunks.extend(_abbreviation_chunks(pattern_title, abbreviations))
 
@@ -146,6 +190,33 @@ def index_pattern(
 
     collection.add(ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
     return len(chunks)
+
+
+def get_materials_chunks() -> list[dict]:
+    """Return every pattern's materials chunk directly, bypassing semantic
+    ranking. Cross-pattern comparison questions (yardage on hand, gauge,
+    needle size) need every pattern's materials on hand, not just whichever
+    happen to land in a semantic top-k for one query's embedding — at
+    personal-library scale (dozens of patterns, not thousands) it's cheap
+    to just include them all rather than leave coverage to embedding luck.
+    """
+    collection = _get_collection()
+    if collection.count() == 0:
+        return []
+
+    results = collection.get(where={"section_type": "materials"})
+    hits = []
+    for doc, meta in zip(results["documents"], results["metadatas"]):
+        hits.append(
+            {
+                "pattern_id": meta.get("pattern_id"),
+                "pattern_title": meta.get("pattern_title"),
+                "section_type": "materials",
+                "text": doc,
+                "distance": None,
+            }
+        )
+    return hits
 
 
 def delete_pattern_index(pattern_id: str) -> None:

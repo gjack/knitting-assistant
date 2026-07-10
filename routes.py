@@ -25,9 +25,8 @@ async def upload_pattern(file: UploadFile = File(...)):
     doc = await process_pdf(pdf_bytes, file.filename)
 
     title = doc.get("metadata", {}).get("title") or doc.get("filename") or "Unknown"
-    abbreviations = doc.get("metadata", {}).get("abbreviations") or []
     await asyncio.to_thread(
-        index_pattern, doc["pattern_id"], title, doc["pattern_document"], abbreviations
+        index_pattern, doc["pattern_id"], title, doc["pattern_document"], doc.get("metadata")
     )
 
     return JSONResponse(content=doc)

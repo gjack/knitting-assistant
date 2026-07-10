@@ -18,7 +18,7 @@ LIBRARY_DIR = Path("library")
 CHROMA_DIR = Path("chroma_db")
 
 HISTORY_WINDOW = 10
-LIBRARY_RAG_K = 6
+LIBRARY_RAG_K = 10
 
 CHAT_SYSTEM_PROMPT = """You are a knitting assistant. Your sole purpose is to help knitters understand and work with their knitting patterns.
 

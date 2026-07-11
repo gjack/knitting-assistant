@@ -366,6 +366,7 @@ const styles = {
     gap: 8,
   },
   talkBtn: {
+    width: 150,
     padding: "8px 14px",
     background: "#fff",
     color: "#5a3e2b",
@@ -970,11 +971,16 @@ function VoiceInputControl({ patternId, onMessage, disabled, onBusyChange }) {
         <button
           style={{ ...styles.talkBtn, ...(isListening ? styles.talkBtnActive : {}) }}
           disabled={talkDisabled}
-          onMouseDown={(e) => { e.preventDefault(); voice.startListening(); }}
-          onMouseUp={() => voice.stopListening()}
-          onMouseLeave={() => { if (isListening) voice.stopListening(); }}
-          onTouchStart={(e) => { e.preventDefault(); voice.startListening(); }}
-          onTouchEnd={(e) => { e.preventDefault(); voice.stopListening(); }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            voice.startListening();
+            window.addEventListener("mouseup", () => voice.stopListening(), { once: true });
+          }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            voice.startListening();
+            window.addEventListener("touchend", () => voice.stopListening(), { once: true });
+          }}
         >
           🎙️ {isListening ? "Listening…" : "Hold to talk"}
         </button>

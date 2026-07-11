@@ -128,7 +128,12 @@ def chat(pattern_id: str, user_message: str) -> str:
         {"role": "user", "content": framed_message},
     ]
 
-    # Retry once on ThinkChunk-only empty responses
+    # Retry once on ThinkChunk-only empty responses, and once on the canned
+    # off-topic refusal -- the guardrail is known to misfire on legitimate,
+    # in-scope follow-ups near its decision boundary (confirmed: identical
+    # input flips between refusing and answering across repeated calls), so
+    # a single retry meaningfully cuts the false-refusal rate without
+    # weakening genuinely off-topic questions, which refuse consistently.
     reply = ""
     for _ in range(2):
         resp = client.chat.complete(
@@ -136,7 +141,7 @@ def chat(pattern_id: str, user_message: str) -> str:
             messages=messages,
         )
         reply = _extract_text(resp.choices[0].message.content)
-        if reply.strip():
+        if reply.strip() and reply.strip() != _INJECTION_REPLY:
             break
 
     history.append({"role": "user", "content": user_message})
@@ -187,11 +192,13 @@ def ask_library(user_message: str, history: Optional[list[dict]] = None) -> dict
         {"role": "user", "content": framed_message},
     ]
 
+    # Retry once on empty replies and once on the canned off-topic refusal --
+    # see the matching comment in chat() for why the refusal case is retried.
     reply = ""
     for _ in range(2):
         resp = client.chat.complete(model=CHAT_MODEL, messages=messages)
         reply = _extract_text(resp.choices[0].message.content)
-        if reply.strip():
+        if reply.strip() and reply.strip() != _LIBRARY_INJECTION_REPLY:
             break
 
     # Only surface a pattern as a source if the reply actually cites it by

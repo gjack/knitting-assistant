@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -715,12 +715,17 @@ function useVoiceSession(patternId) {
   const audioUrlRef = useRef(null);
   const micRef = useRef(null); // { stream, audioContext, source, processor }
   const streamingRef = useRef(false);
+  const voiceStateRef = useRef("idle"); // mirrors voiceState for use in stable callbacks
 
   const [voiceState, setVoiceState] = useState("idle");
   const [voiceError, setVoiceError] = useState(null);
   const [partialTranscript, setPartialTranscript] = useState("");
   const [finalTranscript, setFinalTranscript] = useState("");
   const [voiceMessage, setVoiceMessage] = useState(null);
+
+  useEffect(() => {
+    voiceStateRef.current = voiceState;
+  }, [voiceState]);
 
   const send = (payload) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -818,8 +823,8 @@ function useVoiceSession(patternId) {
     micRef.current = null;
   }
 
-  const startListening = async () => {
-    if (voiceState !== "idle" || wsRef.current?.readyState !== WebSocket.OPEN) return;
+  const startListening = useCallback(async () => {
+    if (voiceStateRef.current !== "idle" || wsRef.current?.readyState !== WebSocket.OPEN) return;
 
     let stream;
     try {
@@ -853,21 +858,24 @@ function useVoiceSession(patternId) {
     streamingRef.current = true;
 
     send({ type: "start_listening" });
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const stopListening = () => {
+  const stopListening = useCallback(() => {
     if (!streamingRef.current) return;
     streamingRef.current = false;
     send({ type: "stop_listening" });
     teardownMic();
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const sendText = (text) => {
+  const sendText = useCallback((text) => {
     const trimmed = text.trim();
-    if (!trimmed || voiceState !== "idle") return;
+    if (!trimmed || voiceStateRef.current !== "idle") return;
     setFinalTranscript("");
     send({ type: "send_message", text: trimmed });
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function playAudio(b64Data, format) {
     stopCurrentAudio(false);

@@ -352,6 +352,75 @@ const styles = {
     fontWeight: 600,
     alignSelf: "flex-end",
   },
+  voiceControl: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "10px 12px",
+    borderTop: "1px solid #e0d8d0",
+    background: "#fdf6ee",
+  },
+  voiceControlHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  talkBtn: {
+    padding: "8px 14px",
+    background: "#fff",
+    color: "#5a3e2b",
+    border: "1px solid #c4a882",
+    borderRadius: 20,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    userSelect: "none",
+  },
+  talkBtnActive: {
+    background: "#5a3e2b",
+    color: "#fff",
+    border: "1px solid #5a3e2b",
+  },
+  voiceStateBadge: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#888",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  voiceStateBadgeError: {
+    color: "#c0392b",
+  },
+  stopSpeakingBtn: {
+    marginLeft: "auto",
+    padding: "4px 10px",
+    background: "#fff",
+    color: "#c0392b",
+    border: "1px solid #c0392b",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
+  },
+  voiceErrorText: {
+    fontSize: 12,
+    color: "#c0392b",
+  },
+  voiceTranscriptRow: {
+    display: "flex",
+    gap: 6,
+  },
+  transcriptBox: {
+    flex: 1,
+    padding: "8px 10px",
+    border: "1px solid #d0c8c0",
+    borderRadius: 6,
+    fontSize: 13,
+    outline: "none",
+    resize: "none",
+    fontFamily: "inherit",
+    lineHeight: 1.4,
+    background: "#fff",
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: 700,
@@ -627,10 +696,330 @@ function PatternMarkdown({ text, charts }) {
   );
 }
 
+const VOICE_STATE_LABELS = {
+  idle: "Idle",
+  listening: "Listening…",
+  transcribing: "Transcribing…",
+  thinking: "Thinking…",
+  speaking: "Speaking…",
+  error: "Error",
+};
+
+function useVoiceSession(patternId) {
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const mountedRef = useRef(true);
+  const patternIdRef = useRef(patternId);
+  const audioRef = useRef(null);
+  const audioUrlRef = useRef(null);
+  const micRef = useRef(null); // { stream, audioContext, source, processor }
+  const streamingRef = useRef(false);
+
+  const [voiceState, setVoiceState] = useState("idle");
+  const [voiceError, setVoiceError] = useState(null);
+  const [partialTranscript, setPartialTranscript] = useState("");
+  const [finalTranscript, setFinalTranscript] = useState("");
+  const [voiceMessage, setVoiceMessage] = useState(null);
+
+  const send = (payload) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload));
+    }
+  };
+
+  useEffect(() => {
+    patternIdRef.current = patternId;
+    if (patternId) send({ type: "set_pattern", pattern_id: patternId });
+  }, [patternId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    const connect = () => {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        clearTimeout(reconnectTimerRef.current);
+        if (patternIdRef.current) {
+          send({ type: "set_pattern", pattern_id: patternIdRef.current });
+        }
+      };
+
+      ws.onmessage = (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        switch (msg.type) {
+          case "state":
+            setVoiceState(msg.state);
+            if (msg.state === "listening") {
+              setPartialTranscript("");
+              setFinalTranscript("");
+            }
+            break;
+          case "transcript_delta":
+            setPartialTranscript((prev) => prev + msg.text);
+            break;
+          case "transcript":
+            setFinalTranscript(msg.text);
+            setPartialTranscript("");
+            break;
+          case "message":
+            setVoiceMessage({ role: msg.role, content: msg.content });
+            break;
+          case "audio":
+            playAudio(msg.data, msg.format);
+            break;
+          case "error":
+            setVoiceError(msg.message);
+            setTimeout(() => setVoiceError(null), 4000);
+            break;
+          default:
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        if (!mountedRef.current) return;
+        reconnectTimerRef.current = setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        // onclose follows and triggers reconnection
+      };
+    };
+
+    connect();
+
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+      wsRef.current = null;
+      teardownMic();
+      stopCurrentAudio(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function teardownMic() {
+    const mic = micRef.current;
+    if (!mic) return;
+    mic.processor?.disconnect();
+    mic.source?.disconnect();
+    mic.audioContext?.close();
+    mic.stream?.getTracks().forEach((t) => t.stop());
+    micRef.current = null;
+  }
+
+  const startListening = async () => {
+    if (voiceState !== "idle" || wsRef.current?.readyState !== WebSocket.OPEN) return;
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
+      });
+    } catch {
+      setVoiceError("Microphone access denied.");
+      setTimeout(() => setVoiceError(null), 4000);
+      return;
+    }
+
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    processor.onaudioprocess = (e) => {
+      if (!streamingRef.current || wsRef.current?.readyState !== WebSocket.OPEN) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const int16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      wsRef.current.send(int16.buffer);
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+    micRef.current = { stream, audioContext, source, processor };
+    streamingRef.current = true;
+
+    send({ type: "start_listening" });
+  };
+
+  const stopListening = () => {
+    if (!streamingRef.current) return;
+    streamingRef.current = false;
+    send({ type: "stop_listening" });
+    teardownMic();
+  };
+
+  const sendText = (text) => {
+    const trimmed = text.trim();
+    if (!trimmed || voiceState !== "idle") return;
+    setFinalTranscript("");
+    send({ type: "send_message", text: trimmed });
+  };
+
+  function playAudio(b64Data, format) {
+    stopCurrentAudio(false);
+    const binary = atob(b64Data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: `audio/${format}` });
+
+    audioUrlRef.current = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrlRef.current);
+    audioRef.current = audio;
+
+    const cleanup = () => {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+      audioRef.current = null;
+    };
+    audio.onended = () => {
+      cleanup();
+      send({ type: "playback_finished" });
+    };
+    audio.onerror = () => {
+      cleanup();
+      send({ type: "playback_finished" });
+    };
+    audio.play().catch(() => {
+      cleanup();
+      send({ type: "playback_finished" });
+    });
+  }
+
+  function stopCurrentAudio(notifyServer = true) {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+      audioRef.current = null;
+    }
+    if (notifyServer) send({ type: "stop_speaking" });
+  }
+
+  return {
+    voiceState,
+    voiceError,
+    partialTranscript,
+    finalTranscript,
+    setFinalTranscript,
+    voiceMessage,
+    startListening,
+    stopListening,
+    sendText,
+    stopSpeaking: () => stopCurrentAudio(true),
+  };
+}
+
+function VoiceInputControl({ patternId, onMessage, disabled, onBusyChange }) {
+  const voice = useVoiceSession(patternId);
+  const lastMessageRef = useRef(null);
+
+  useEffect(() => {
+    if (voice.voiceMessage && voice.voiceMessage !== lastMessageRef.current) {
+      lastMessageRef.current = voice.voiceMessage;
+      onMessage(voice.voiceMessage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.voiceMessage]);
+
+  useEffect(() => {
+    onBusyChange?.(voice.voiceState !== "idle" && voice.voiceState !== "error");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.voiceState]);
+
+  useEffect(() => {
+    const isEditable = (el) => el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    const onKeyDown = (e) => {
+      if (e.code !== "Space" || e.repeat || isEditable(document.activeElement) || disabled) return;
+      e.preventDefault();
+      voice.startListening();
+    };
+    const onKeyUp = (e) => {
+      if (e.code !== "Space" || isEditable(document.activeElement)) return;
+      e.preventDefault();
+      voice.stopListening();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, voice.startListening, voice.stopListening]);
+
+  const transcriptValue = voice.partialTranscript || voice.finalTranscript;
+  const talkDisabled = disabled || (voice.voiceState !== "idle" && voice.voiceState !== "listening");
+  const isListening = voice.voiceState === "listening";
+
+  return (
+    <div style={styles.voiceControl}>
+      <div style={styles.voiceControlHeader}>
+        <button
+          style={{ ...styles.talkBtn, ...(isListening ? styles.talkBtnActive : {}) }}
+          disabled={talkDisabled}
+          onMouseDown={(e) => { e.preventDefault(); voice.startListening(); }}
+          onMouseUp={() => voice.stopListening()}
+          onMouseLeave={() => { if (isListening) voice.stopListening(); }}
+          onTouchStart={(e) => { e.preventDefault(); voice.startListening(); }}
+          onTouchEnd={(e) => { e.preventDefault(); voice.stopListening(); }}
+        >
+          🎙️ {isListening ? "Listening…" : "Hold to talk"}
+        </button>
+        <span
+          style={{
+            ...styles.voiceStateBadge,
+            ...(voice.voiceState === "error" ? styles.voiceStateBadgeError : {}),
+          }}
+        >
+          {VOICE_STATE_LABELS[voice.voiceState] || voice.voiceState}
+        </span>
+        {voice.voiceState === "speaking" && (
+          <button style={styles.stopSpeakingBtn} onClick={voice.stopSpeaking}>
+            Stop speaking
+          </button>
+        )}
+      </div>
+      {voice.voiceError && <div style={styles.voiceErrorText}>{voice.voiceError}</div>}
+      {transcriptValue && (
+        <div style={styles.voiceTranscriptRow}>
+          <textarea
+            style={styles.transcriptBox}
+            rows={2}
+            value={transcriptValue}
+            onChange={(e) => voice.setFinalTranscript(e.target.value)}
+            placeholder="Transcript will appear here…"
+          />
+          <button
+            style={styles.sendBtn}
+            disabled={voice.voiceState !== "idle" || disabled}
+            onClick={() => voice.sendText(transcriptValue)}
+          >
+            Send
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ChatPanel({ patternId, initialHistory }) {
   const [messages, setMessages] = useState(initialHistory || []);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -639,7 +1028,7 @@ function ChatPanel({ patternId, initialHistory }) {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || thinking) return;
+    if (!text || thinking || voiceBusy) return;
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setThinking(true);
@@ -711,6 +1100,12 @@ function ChatPanel({ patternId, initialHistory }) {
         {thinking && <div style={styles.bubbleThinking}>Thinking…</div>}
         <div ref={bottomRef} />
       </div>
+      <VoiceInputControl
+        patternId={patternId}
+        onMessage={(m) => setMessages((prev) => [...prev, { role: m.role, content: m.content }])}
+        disabled={thinking}
+        onBusyChange={setVoiceBusy}
+      />
       <div style={styles.chatInputRow}>
         <textarea
           style={styles.chatInput}
@@ -719,12 +1114,12 @@ function ChatPanel({ patternId, initialHistory }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={thinking}
+          disabled={thinking || voiceBusy}
         />
         <button
-          style={{ ...styles.sendBtn, opacity: thinking ? 0.6 : 1 }}
+          style={{ ...styles.sendBtn, opacity: thinking || voiceBusy ? 0.6 : 1 }}
           onClick={send}
-          disabled={thinking}
+          disabled={thinking || voiceBusy}
         >
           Send
         </button>

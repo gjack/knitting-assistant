@@ -9,8 +9,8 @@ export default defineConfig({
         target: "http://127.0.0.1:8765",
         changeOrigin: true,
       },
-      "/api/ws": {
-        target: "http://127.0.0.1:8765",
+      "/ws": {
+        target: "ws://127.0.0.1:8765",
         ws: true,
         changeOrigin: true,
       },

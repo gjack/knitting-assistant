@@ -20,6 +20,33 @@ CHROMA_DIR = Path("chroma_db")
 HISTORY_WINDOW = 10
 LIBRARY_RAG_K = 10
 
+ASR_SAMPLE_RATE = 16000
+ASR_TARGET_STREAMING_DELAY_MS = 480
+ASR_TRANSCRIPT_TIMEOUT_S = 10.0
+DEFAULT_VOICE_PREFERENCES = ["Jane - Confident", "Oliver - Cheerful", "Jane - Neutral"]
+
+# Resolved lazily on first TTS turn and cached for the process lifetime --
+# voices.list() is a network call we don't want on every message.
+# None = not yet tried; False = tried and failed, don't retry every call.
+_default_voice_id = None
+
+
+def get_default_voice_id():
+    global _default_voice_id
+    if _default_voice_id is None:
+        try:
+            result = client.audio.voices.list(limit=50)
+            names = {v.name: v.id for v in result.items}
+            for preferred in DEFAULT_VOICE_PREFERENCES:
+                if preferred in names:
+                    _default_voice_id = names[preferred]
+                    break
+            if not _default_voice_id and result.items:
+                _default_voice_id = result.items[0].id
+        except Exception:
+            _default_voice_id = False
+    return _default_voice_id or None
+
 CHAT_SYSTEM_PROMPT = """You are a knitting assistant. Your sole purpose is to help knitters understand and work with their knitting patterns.
 
 You may answer questions about:

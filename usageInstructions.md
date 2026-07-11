@@ -67,7 +67,7 @@ npm run dev
 
 Open **[http://localhost:5173](http://localhost:5173)** in your browser.
 
-> Use `localhost`, not `127.0.0.1` — browsers require `localhost` (or HTTPS) to allow microphone access for the voice features coming in phase 4.
+> Use `localhost`, not `127.0.0.1` — browsers require `localhost` (or HTTPS) to allow microphone access for voice input.
 
 ## Using the app
 
@@ -95,6 +95,20 @@ The chat panel on the right side of the viewer lets you ask questions about the 
 - The assistant will decline questions unrelated to knitting
 - Conversation history is saved per pattern and restored when you reopen a pattern from the library
 - Click **Clear** in the chat header to erase the history for the active pattern
+
+### Voice interaction
+
+The chat panel for the active pattern has a **🎙️ Hold to talk** button, below the message feed.
+
+- Hold the button (or hold the **Space bar**, if focus isn't in a text box) and speak your question; release to stop
+- A state badge shows what's happening: **Idle → Listening → Transcribing → Thinking → Speaking**, and turns red on **Error**
+- While listening, a live partial transcript streams into an editable box below the button; once you release, the finalized transcript lands there for you to review or edit
+- Nothing is sent automatically — click **Send** once you're happy with the transcript, same two-phase flow as typing
+- Voice questions go through the same `ChatEngine` as typed ones, so they share the same per-pattern history — a voice-asked question and its answer appear in the chat feed and are saved to that pattern's history exactly like a typed one
+- The reply is read aloud automatically once it appears; click **Stop speaking** to cancel playback at any point
+- Expect a few seconds of silence between the text reply appearing and audio starting — the TTS call synthesizes the full reply before sending any of it back, so longer answers take longer to start speaking
+- Voice is scoped to the active pattern only; there's no voice input on the "Ask my library" panel
+- If the microphone permission prompt is denied, or STT/TTS hits an error, the badge turns red with a message and the session recovers to Idle — it doesn't crash the connection, and typed chat keeps working
 
 ### Library search (API)
 
@@ -142,3 +156,16 @@ When no pattern is active (the upload screen), a second panel — **Ask my libra
 
 **Chat history not showing after reload**
 - History is stored in `library/<pattern_id>/document.json`. If the file was manually edited or the pattern was re-uploaded (generating a new `pattern_id`), previous history will not carry over
+
+**Talk button does nothing / no state badge**
+- Make sure you opened the app at `http://localhost:5173`, not `127.0.0.1:5173` — browsers block microphone access outside `localhost`/HTTPS
+- Check the browser's site permissions if you previously denied microphone access; you'll need to re-allow it manually since the prompt won't reappear on its own
+
+**"No speech detected" after releasing the Talk button**
+- Nothing was captured before you released — check your system microphone input level, or that the correct input device is selected in your OS/browser settings, and try holding a little longer
+
+**Long pause between the reply text appearing and hearing it**
+- Expected — the TTS call generates the entire audio clip before any of it is sent back, so the pause is roughly proportional to reply length. Not a bug; there's currently no streaming TTS path
+
+**Voice reply doesn't match what you asked**
+- The same off-topic/prompt-injection guardrails as typed chat apply; see "Chat says 'I can only help with...'" above if a legitimate question gets refused

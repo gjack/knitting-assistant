@@ -10,7 +10,7 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 - **Browse your library** — every processed pattern is saved locally and indexed in ChromaDB; reopen any pattern without re-uploading
 - **Search across patterns** — natural-language search over all indexed patterns via `GET /api/search`
 - **Ask my library** — when no pattern is active, ask questions across your whole library ("which patterns use short-row shaping?") and get an answer with citations to the source pattern(s), which you can click to open
-- **Voice interaction** *(coming soon)* — push-to-talk STT + TTS readback
+- **Ask by voice** — hold the Talk button (or the Space bar) to ask the active pattern a question, review the transcript before sending, and hear the answer read back automatically
 
 ## Stack
 
@@ -22,8 +22,8 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 | Vision / Chat | `mistral-small-latest` |
 | Embeddings | `mistral-embed` |
 | Vector store | ChromaDB (local, persistent) |
-| Voice STT | Voxtral Realtime *(phase 4)* |
-| Voice TTS | Voxtral TTS *(phase 4)* |
+| Voice STT | Voxtral Realtime (`voxtral-mini-transcribe-realtime-2602`) |
+| Voice TTS | Voxtral TTS (`voxtral-mini-tts-2603`) |
 
 ## Project status
 
@@ -33,7 +33,7 @@ A web app that helps knitters understand and work with PDF knitting patterns. Up
 | 2 | Text chat over the active pattern (full-context Q&A, history, guardrails) | ✅ Done |
 | 3a | ChromaDB library indexing + `/api/search` endpoint | ✅ Done |
 | 3b | "Ask my library" — RAG over all patterns when none is active | ✅ Done |
-| 4 | Voice interaction (push-to-talk STT + TTS readback) | 🔜 Planned |
+| 4 | Voice interaction (push-to-talk STT + TTS readback) | ✅ Done |
 
 ## Setup
 
@@ -43,14 +43,16 @@ See [usageInstructions.md](usageInstructions.md) for full setup and run instruct
 
 ```
 knitting-assistant/
-├── server.py              # FastAPI app + WebSocket stub
+├── server.py              # FastAPI app; WebSocket endpoint + voice turn orchestration
 ├── routes.py              # REST endpoints (upload, library CRUD, chat, search)
 ├── pattern_processor.py   # OCR + metadata + chart interpretation pipeline
 ├── chat_engine.py         # LLM chat over active pattern + library-wide RAG, history, injection filter
 ├── library_index.py       # Chroma chunking, embedding, and search
+├── asr.py                 # Voxtral realtime STT session manager (one push-to-talk utterance)
+├── session.py             # Per-connection voice session state + WS helpers
 ├── config.py              # Mistral client, model IDs, system prompts, constants
 ├── frontend/              # React + Vite app
-│   └── src/App.jsx        # Upload, pattern viewer, library sidebar, chat panel
+│   └── src/App.jsx        # Upload, pattern viewer, library sidebar, chat panel, voice control
 ├── library/               # On-disk pattern storage (created at runtime)
 ├── chroma_db/             # ChromaDB persistent storage (created at runtime)
 ├── requirements.txt
